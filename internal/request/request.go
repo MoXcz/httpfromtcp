@@ -8,7 +8,17 @@ import (
 
 type Request struct {
 	RequestLine RequestLine
+	state       State
 }
+
+type State = int
+
+const (
+	INIT = iota
+	DONE
+)
+
+const bufferSize = 8
 
 type RequestLine struct {
 	HttpVersion   string
@@ -17,53 +27,103 @@ type RequestLine struct {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
+	buf := make([]byte, bufferSize)
+	readToIndex := 0
+
+	req := Request{state: INIT}
+	for req.state != DONE {
+		if len(buf) == readToIndex {
+			newBuf := make([]byte, len(buf)*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+
+		read, err := reader.Read(buf[readToIndex:])
+		if err == io.EOF || (read == 0 && err == nil) {
+			req.state = DONE
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		readToIndex += read
+
+		parsed, err := req.parse(buf[:readToIndex])
+		if err != nil {
+			return nil, err
+		}
+
+		if parsed == 0 {
+			continue
+		}
+		readToIndex = parsed
 	}
 
-	// premature checking
-	parts := strings.Split(string(data), "\r\n")
-	if len(parts) != 6 {
-		return nil, fmt.Errorf("invalid format, missing CLRN")
-	}
-
-	reqLine, err := parseRequestLine(parts[0])
-	if err != nil {
-		return nil, err
-	}
-
-	return &Request{
-		RequestLine: reqLine,
-	}, nil
+	return &req, nil
 }
 
-func parseRequestLine(s string) (RequestLine, error) {
+func parseRequestLine(s string) (int, error) {
 	// not sure if it's sure for a request line to have a single ' ' character
 	// space, but let's assume for now that it does, otherwise it will be malformed
-	parts := strings.Split(s, " ")
-	if len(parts) != 3 {
-		return RequestLine{}, fmt.Errorf("invallid request line")
+	reqParts := strings.Split(s, "\r\n")
+	// needs more data
+	if len(reqParts) < 2 {
+		return 0, nil
 	}
+	parts := strings.Split(reqParts[0], " ")
+	if len(parts) < 3 {
+		return 0, fmt.Errorf("invalid request line")
+	}
+	bytesRead := len(parts[0])
 	if !isMethod(parts[0]) {
-		return RequestLine{}, fmt.Errorf("invalid request line method")
+		return bytesRead, fmt.Errorf("invalid request line method")
 	}
-	method := parts[0]
+	bytesRead += len(parts[1])
 	if !isRequestTarget(parts[1]) {
-		return RequestLine{}, fmt.Errorf("invalid request line request target")
+		return bytesRead, fmt.Errorf("invalid request line request target")
 	}
-	requestTarget := parts[1]
+	bytesRead += len(parts[2])
 	if !isHttpVersion(parts[2]) {
-		return RequestLine{}, fmt.Errorf("invalid request line HTTP version")
+		return bytesRead, fmt.Errorf("invalid request line HTTP version")
 	}
-	httpVersion := strings.Split(parts[2], "/")[1]
-	return RequestLine{
-		Method: method, RequestTarget: requestTarget, HttpVersion: httpVersion}, nil
+	return bytesRead, nil
+}
+
+func (r *Request) parse(data []byte) (int, error) {
+	switch r.state {
+	case INIT:
+		bytesRead, err := parseRequestLine(string(data))
+		if err != nil {
+			return 0, err
+		}
+		// needs more data
+		if bytesRead == 0 {
+			return 0, nil
+		}
+		reqParts := strings.Split(string(data), "\r\n")
+		parts := strings.Split(reqParts[0], " ")
+		r.RequestLine = RequestLine{
+			Method:        parts[0],
+			RequestTarget: parts[1],
+			HttpVersion:   strings.Split(parts[2], "/")[1],
+		}
+		r.state = DONE
+		return bytesRead, nil
+	case DONE:
+		return 0, fmt.Errorf("trying to read data in a done state")
+	}
+	return 0, fmt.Errorf("invalid state")
 }
 
 // TODO: fill missing methods
 func isMethod(m string) bool {
-	return m == "GET" || m == "POST"
+	for b := range m {
+		if b < 'A' && b > 'Z' {
+			return false
+		}
+	}
+	// something like this is not viable in a stream context
+	// return m == "GET" || m == "POST"
+	return true
 }
 
 // '/', '/cat', '/api/resource'
