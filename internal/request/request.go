@@ -39,24 +39,23 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			buf = newBuf
 		}
 
-		read, err := reader.Read(buf[readToIndex:])
-		if err == io.EOF || (read == 0 && err == nil) {
+		readBytes, err := reader.Read(buf[readToIndex:])
+		if err == io.EOF || (readBytes == 0 && err == nil) {
 			req.state = DONE
 			break
 		} else if err != nil {
 			return nil, err
 		}
-		readToIndex += read
+		readToIndex += readBytes
 
-		parsed, err := req.parse(buf[:readToIndex])
+		parsedBytes, err := req.parse(buf[:readToIndex])
 		if err != nil {
 			return nil, err
 		}
 
-		if parsed == 0 {
-			continue
-		}
-		readToIndex = parsed
+		// 'remove' parsed data
+		copy(buf, buf[parsedBytes:])
+		readToIndex -= parsedBytes
 	}
 
 	return &req, nil
