@@ -8,17 +8,8 @@ import (
 
 type Request struct {
 	RequestLine RequestLine
-	state       State
+	state       reqState
 }
-
-type State = int
-
-const (
-	INIT = iota
-	DONE
-)
-
-const bufferSize = 8
 
 type RequestLine struct {
 	HttpVersion   string
@@ -26,13 +17,23 @@ type RequestLine struct {
 	Method        string
 }
 
+type reqState = int
+
+const (
+	INIT = iota
+	DONE
+)
+
+const bufferSize = 8
+const clrf = "\r\n"
+
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	buf := make([]byte, bufferSize)
 	readToIndex := 0
 
 	req := Request{state: INIT}
 	for req.state != DONE {
-		if len(buf) == readToIndex {
+		if len(buf) <= readToIndex {
 			newBuf := make([]byte, len(buf)*2)
 			copy(newBuf, buf)
 			buf = newBuf
@@ -64,7 +65,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 func parseRequestLine(s string) (int, error) {
 	// not sure if it's sure for a request line to have a single ' ' character
 	// space, but let's assume for now that it does, otherwise it will be malformed
-	reqParts := strings.Split(s, "\r\n")
+	reqParts := strings.Split(s, clrf)
 	// needs more data
 	if len(reqParts) < 2 {
 		return 0, nil
@@ -99,7 +100,7 @@ func (r *Request) parse(data []byte) (int, error) {
 		if bytesRead == 0 {
 			return 0, nil
 		}
-		reqParts := strings.Split(string(data), "\r\n")
+		reqParts := strings.Split(string(data), clrf)
 		parts := strings.Split(reqParts[0], " ")
 		r.RequestLine = RequestLine{
 			Method:        parts[0],
