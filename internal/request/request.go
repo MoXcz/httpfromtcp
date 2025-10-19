@@ -82,6 +82,7 @@ func parseRequestLine(data []byte) (*RequestLine, int, error) {
 	}
 	bytesRead += len(parts[1])
 	if !isRequestTarget(parts[1]) {
+		fmt.Println(parts[1])
 		return nil, bytesRead, fmt.Errorf("invalid request line request target")
 	}
 	bytesRead += len(parts[2])
@@ -126,10 +127,13 @@ func isRequestTarget(rt string) bool {
 	if rt == "/" {
 		return true
 	}
-	parts := strings.Split(rt, "/")
+	parts := strings.Split(rt[1:], "/")
 	if len(parts)%2 == 0 {
 		return true
 	}
+	fmt.Println(parts)
+	fmt.Println(len(parts))
+
 	return false
 }
 

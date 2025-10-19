@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strings"
+
+	"github.com/MoXcz/httpfromtcp/internal/request"
 )
 
 func main() {
@@ -16,6 +16,7 @@ func main() {
 	}
 	defer tcpListener.Close()
 
+	fmt.Println("Listening on port 42069")
 	for {
 		conn, err := tcpListener.Accept()
 		if err != nil {
@@ -23,32 +24,15 @@ func main() {
 			return
 		}
 		fmt.Println("Connection accepted!")
-		linesCh := getLinesChannel(conn)
-		for line := range linesCh {
-			fmt.Printf("%s\n", line)
+		request, err := request.RequestFromReader(conn)
+		if err != nil {
+			log.Fatalln(err)
+			return
 		}
-		fmt.Println("Connection closed!")
-	}
-}
 
-func getLinesChannel(f io.ReadCloser) <-chan string {
-	linesCh := make(chan string)
-	go func() {
-		defer f.Close()
-		defer close(linesCh)
-		data := make([]byte, 8)
-		bytesRead, err := f.Read(data)
-		str := ""
-		for err != io.EOF {
-			str = str + string(data[0:bytesRead])
-			bytesRead, err = f.Read(data)
-		}
-		listStr := strings.SplitSeq(str, "\n")
-		for str := range listStr {
-			if str != "" {
-				linesCh <- str
-			}
-		}
-	}()
-	return linesCh
+		fmt.Printf("Request line:\n")
+		fmt.Printf("- Method: %s\n", request.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", request.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", request.RequestLine.HttpVersion)
+	}
 }
