@@ -1,6 +1,7 @@
 package request
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -61,37 +62,44 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	return &req, nil
 }
 
-func parseRequestLine(s string) (int, error) {
+func parseRequestLine(data []byte) (*RequestLine, int, error) {
+	// verify that data can be separated by clrf
+	idx := bytes.Index(data, []byte(clrf))
+	// needs more data
+	if idx == -1 {
+		return nil, 0, nil
+	}
 	// not sure if it's sure for a request line to have a single ' ' character
 	// space, but let's assume for now that it does, otherwise it will be malformed
-	reqParts := strings.Split(s, clrf)
-	// needs more data
-	if len(reqParts) < 2 {
-		return 0, nil
-	}
-	parts := strings.Split(reqParts[0], " ")
+	// note that 'idx' should have the number up to, but not including, the first clrf
+	parts := strings.Split(string(data[:idx]), " ")
 	if len(parts) < 3 {
-		return 0, fmt.Errorf("invalid request line")
+		return nil, 0, fmt.Errorf("invalid request line")
 	}
 	bytesRead := len(parts[0])
 	if !isMethod(parts[0]) {
-		return bytesRead, fmt.Errorf("invalid request line method")
+		return nil, bytesRead, fmt.Errorf("invalid request line method")
 	}
 	bytesRead += len(parts[1])
 	if !isRequestTarget(parts[1]) {
-		return bytesRead, fmt.Errorf("invalid request line request target")
+		return nil, bytesRead, fmt.Errorf("invalid request line request target")
 	}
 	bytesRead += len(parts[2])
 	if !isHttpVersion(parts[2]) {
-		return bytesRead, fmt.Errorf("invalid request line HTTP version")
+		return nil, bytesRead, fmt.Errorf("invalid request line HTTP version")
 	}
-	return bytesRead, nil
+	version := strings.Split(parts[2], "/")[1]
+	return &RequestLine{
+		Method:        parts[0],
+		RequestTarget: parts[1],
+		HttpVersion:   version,
+	}, bytesRead, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
 	switch r.state {
 	case INIT:
-		bytesRead, err := parseRequestLine(string(data))
+		reqLine, bytesRead, err := parseRequestLine(data)
 		if err != nil {
 			return 0, err
 		}
@@ -99,13 +107,7 @@ func (r *Request) parse(data []byte) (int, error) {
 		if bytesRead == 0 {
 			return 0, nil
 		}
-		reqParts := strings.Split(string(data), clrf)
-		parts := strings.Split(reqParts[0], " ")
-		r.RequestLine = RequestLine{
-			Method:        parts[0],
-			RequestTarget: parts[1],
-			HttpVersion:   strings.Split(parts[2], "/")[1],
-		}
+		r.RequestLine = *reqLine
 		r.state = DONE
 		return bytesRead, nil
 	case DONE:
