@@ -118,14 +118,7 @@ func (r *Request) parse(data []byte) (int, error) {
 
 // TODO: fill missing methods
 func isMethod(m string) bool {
-	for b := range m {
-		if b < 'A' && b > 'Z' {
-			return false
-		}
-	}
-	// something like this is not viable in a stream context
-	// return m == "GET" || m == "POST"
-	return true
+	return m == "GET" || m == "POST" || m == "OPTION"
 }
 
 // '/', '/cat', '/api/resource'
